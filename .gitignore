@@ -1,0 +1,13 @@
+/*************  ✨ Windsurf Command ⭐  *************/
+# Arquivos temporarios do Terraform
+*.tfstate
+*.tfstate.backup
+crash.log
+local.tf
+terraform.log
+/*******  82200349-a795-493c-a705-5d2c3a563e01  *******/
+# Arquivos de configuração local do Terraform
+.terraform.local.tfvars
+terraform.tfstate
+/terraform/.terraform
+
