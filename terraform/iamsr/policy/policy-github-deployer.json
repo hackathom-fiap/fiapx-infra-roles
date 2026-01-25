@@ -1,0 +1,37 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowTerraformStateManagement",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::meu-eks-terraform-state/*",
+                "arn:aws:s3:::meu-eks-terraform-state"
+            ]
+        },
+        {
+            "Sid": "AllowTerraformStateLocking",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:DeleteItem"
+            ],
+            "Resource": "arn:aws:dynamodb:*:*:table/meu-eks-terraform-lock-001"
+        },
+        {
+            "Sid": "AllowInfrastructureDeployment",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:*", "eks:*", "rds:*", "apigateway:*", "s3:*", "dynamodb:*", "iam:*", "cloudfront:*", "lambda:*", "cloudwatch:*", "cloudformation:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
