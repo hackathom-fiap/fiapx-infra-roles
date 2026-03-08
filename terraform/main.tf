@@ -1,5 +1,5 @@
 # --- Busca os outputs do módulo EKS ---
-data="terraform_remote_state" "eks" {
+data "terraform_remote_state" "eks" {
   backend = "s3"
   config = {
     bucket         = "meu-eks-terraform-state"
