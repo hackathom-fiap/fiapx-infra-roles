@@ -1,11 +1,11 @@
 # --- Busca os outputs do módulo EKS ---
-data "terraform_remote_state" "eks" {
+data="terraform_remote_state" "eks" {
   backend = "s3"
   config = {
-    bucket         = "meu-eks-terraform-state"       # Substitua pelo nome do seu bucket S3
-    key            = "soat-tech-challenge/eks.tfstate" # Caminho do arquivo de estado dentro do bucket
-    region         = "us-east-1"                       # Região do seu bucket S3
-    dynamodb_table = "meu-eks-terraform-lock-001"           # Substitua pelo nome da sua tabela do DynamoDB para lock
+    bucket         = "meu-eks-terraform-state"
+    key            = "soat-tech-challenge/eks.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "meu-eks-terraform-lock-001"
     encrypt        = true
   }
 }
@@ -15,16 +15,11 @@ data "aws_iam_openid_connect_provider" "eks_oidc_provider" {
   url = data.terraform_remote_state.eks.outputs.oidc_provider_url
 }
 
-# --- Locais para ARNs de Segredos ---
 locals {
-  secrets_arns = [
-    "arn:aws:secretsmanager:us-east-1:239409137076:secret:rds!db-19ace569-6ef1-4359-a00a-00fd84881fa2-UJ9RVK",
-    "arn:aws:secretsmanager:us-east-1:239409137076:secret:fiapx-rabbitmq-password-alPhpo",
-    "arn:aws:secretsmanager:us-east-1:239409137076:secret:/fiapx-redis/redis/user_password-v2"
-  ]
-
-  # Common Assume Role Policy for IRSA
-  assume_role_policy = jsonencode({
+  # --- POLÍTICA DE CONFIANÇA GENÉRICA (IRSA) ---
+  # Permite que qualquer Service Account em qualquer namespace do projeto (hackathon-*) assuma a role.
+  # Para máxima facilidade, usamos o wildcard "*" no namespace e no nome do Service Account.
+  generic_assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
@@ -34,10 +29,11 @@ locals {
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
-          StringEquals = {
+          StringLike = {
             "${replace(data.aws_iam_openid_connect_provider.eks_oidc_provider.url, "https://", "")}:sub" = [
-              "system:serviceaccount:fiapx-api:api-service-account",
-              "system:serviceaccount:fiapx-worker:worker-service-account"
+              "system:serviceaccount:hackathon-*:*",    # Aplicações no namespace hackathon-*
+              "system:serviceaccount:external-secrets:*", # Operador de Segredos
+              "system:serviceaccount:fiapx-*:*"         # Compatibilidade com namespaces fiapx-*
             ]
           }
         }
@@ -46,118 +42,75 @@ locals {
   })
 }
 
-# --- IAM Role para a Aplicação API ---
-resource "aws_iam_role" "api_app_role" {
-  name               = var.api_app_role_name
-  assume_role_policy = local.assume_role_policy
+# --- ROLE PARA O EXTERNAL SECRETS OPERATOR (ESO) ---
+# Esta role é a que o Operador usa para buscar segredos para TODO o cluster.
+resource "aws_iam_role" "external_secrets_role" {
+  name               = "hackathon-fiapx-external-secrets-role"
+  assume_role_policy = local.generic_assume_role_policy
 }
 
-resource "aws_iam_policy" "api_secrets_policy" {
-  name        = "${var.api_app_role_name}-secrets-policy"
-  description = "Policy para a API acessar segredos no Secrets Manager"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = "secretsmanager:GetSecretValue"
-        Resource = local.secrets_arns
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "api_s3_policy" {
-  name        = "${var.api_app_role_name}-s3-policy"
-  description = "Policy para a API acessar o S3"
+resource "aws_iam_policy" "eso_generic_secrets_policy" {
+  name        = "external-secrets-generic-policy"
+  description = "Permite ler todos os segredos do Secrets Manager para o projeto"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
         Action   = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:ListBucket" # Needs ListBucket on bucket ARN, not object ARNs
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecrets"
         ]
-        Resource = [
-          "arn:aws:s3:::${var.s3_bucket_name}",
-          "arn:aws:s3:::${var.s3_bucket_name}/*"
-        ]
+        Resource = "*" # Permissao genérica para não precisar atualizar ARNs
       }
     ]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "api_secrets_attachment" {
-  role       = aws_iam_role.api_app_role.name
-  policy_arn = aws_iam_policy.api_secrets_policy.arn
+resource "aws_iam_role_policy_attachment" "eso_attachment" {
+  role       = aws_iam_role.external_secrets_role.name
+  policy_arn = aws_iam_policy.eso_generic_secrets_policy.arn
 }
 
-resource "aws_iam_role_policy_attachment" "api_s3_attachment" {
-  role       = aws_iam_role.api_app_role.name
-  policy_arn = aws_iam_policy.api_s3_policy.arn
+# --- ROLE GENÉRICA PARA AS APLICAÇÕES (Apps Role) ---
+# Uma única role que todos os seus microsserviços podem usar.
+resource "aws_iam_role" "app_generic_role" {
+  name               = "hackathon-fiapx-app-role"
+  assume_role_policy = local.generic_assume_role_policy
 }
 
-
-# --- IAM Role para a Aplicação Worker ---
-resource "aws_iam_role" "worker_app_role" {
-  name               = var.worker_app_role_name
-  assume_role_policy = local.assume_role_policy
-}
-
-resource "aws_iam_policy" "worker_secrets_policy" {
-  name        = "${var.worker_app_role_name}-secrets-policy"
-  description = "Policy para o Worker acessar segredos no Secrets Manager"
+resource "aws_iam_policy" "app_generic_policy" {
+  name        = "hackathon-app-generic-policy"
+  description = "Acesso genérico a segredos e S3 para as apps"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
-        Resource = local.secrets_arns
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "worker_s3_policy" {
-  name        = "${var.worker_app_role_name}-s3-policy"
-  description = "Policy para o Worker acessar o S3"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
+        Resource = "*" 
+      },
       {
         Effect   = "Allow"
         Action   = [
           "s3:GetObject",
           "s3:PutObject",
           "s3:DeleteObject",
-          "s3:ListBucket" # Needs ListBucket on bucket ARN, not object ARNs
+          "s3:ListBucket"
         ]
-        Resource = [
-          "arn:aws:s3:::${var.s3_bucket_name}",
-          "arn:aws:s3:::${var.s3_bucket_name}/*"
-        ]
+        Resource = "*" # Permite acesso a buckets S3 (pode restringir por prefixo se desejar)
       }
     ]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "worker_secrets_attachment" {
-  role       = aws_iam_role.worker_app_role.name
-  policy_arn = aws_iam_policy.worker_secrets_policy.arn
+resource "aws_iam_role_policy_attachment" "app_attachment" {
+  role       = aws_iam_role.app_generic_role.name
+  policy_arn = aws_iam_policy.app_generic_policy.arn
 }
-
-resource "aws_iam_role_policy_attachment" "worker_s3_attachment" {
-  role       = aws_iam_role.worker_app_role.name
-  policy_arn = aws_iam_policy.worker_s3_policy.arn
-}
-
 
 # --- Role de Deploy (GitHub Actions) ---
-# Mantendo a role de deploy existente
 resource "aws_iam_role" "deploy_role" {
   name               = var.deploy_role_name
   assume_role_policy = file("${path.module}/iamsr/trust/trust-github-actions.json")
