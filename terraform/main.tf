@@ -1,36 +1,26 @@
-# --- Busca os outputs do módulo EKS ---
-data "terraform_remote_state" "eks" {
-  backend = "s3"
-  config = {
-    bucket         = "meu-eks-terraform-state"
-    key            = "soat-tech-challenge/eks.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "meu-eks-terraform-lock-001"
-    encrypt        = true
-  }
-}
-
-# --- Busca os detalhes do provedor OIDC do EKS ---
-data "aws_iam_openid_connect_provider" "eks_oidc_provider" {
-  url = data.terraform_remote_state.eks.outputs.oidc_provider_url
-}
+# --- Variáveis (Definidas no terraform.tfvars) ---
+variable "oidc_provider_url" {}
+variable "oidc_provider_arn" {}
+variable "s3_bucket_name" {}
+variable "deploy_role_name" {}
+variable "api_app_role_name" {}
+variable "worker_app_role_name" {}
+variable "aws_region" {}
 
 locals {
   # --- POLÍTICA DE CONFIANÇA GENÉRICA (IRSA) ---
-  # Permite que qualquer Service Account em qualquer namespace do projeto (hackathon-*) assuma a role.
-  # Para máxima facilidade, usamos o wildcard "*" no namespace e no nome do Service Account.
   generic_assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.eks_oidc_provider.arn
+          Federated = var.oidc_provider_arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringLike = {
-            "${replace(data.aws_iam_openid_connect_provider.eks_oidc_provider.url, "https://", "")}:sub" = [
+            "${replace(var.oidc_provider_url, "https://", "")}:sub" = [
               "system:serviceaccount:hackathon-*:*",    # Aplicações no namespace hackathon-*
               "system:serviceaccount:external-secrets:*", # Operador de Segredos
               "system:serviceaccount:fiapx-*:*"         # Compatibilidade com namespaces fiapx-*
@@ -43,7 +33,6 @@ locals {
 }
 
 # --- ROLE PARA O EXTERNAL SECRETS OPERATOR (ESO) ---
-# Esta role é a que o Operador usa para buscar segredos para TODO o cluster.
 resource "aws_iam_role" "external_secrets_role" {
   name               = "hackathon-fiapx-external-secrets-role"
   assume_role_policy = local.generic_assume_role_policy
@@ -62,7 +51,7 @@ resource "aws_iam_policy" "eso_generic_secrets_policy" {
           "secretsmanager:DescribeSecret",
           "secretsmanager:ListSecrets"
         ]
-        Resource = "*" # Permissao genérica para não precisar atualizar ARNs
+        Resource = "*" 
       }
     ]
   })
@@ -74,7 +63,6 @@ resource "aws_iam_role_policy_attachment" "eso_attachment" {
 }
 
 # --- ROLE GENÉRICA PARA AS APLICAÇÕES (Apps Role) ---
-# Uma única role que todos os seus microsserviços podem usar.
 resource "aws_iam_role" "app_generic_role" {
   name               = "hackathon-fiapx-app-role"
   assume_role_policy = local.generic_assume_role_policy
@@ -99,7 +87,7 @@ resource "aws_iam_policy" "app_generic_policy" {
           "s3:DeleteObject",
           "s3:ListBucket"
         ]
-        Resource = "*" # Permite acesso a buckets S3 (pode restringir por prefixo se desejar)
+        Resource = "*"
       }
     ]
   })
@@ -125,4 +113,44 @@ resource "aws_iam_policy" "github_deployer_policy" {
 resource "aws_iam_role_policy_attachment" "github_deployer_attachment" {
   role       = aws_iam_role.deploy_role.name
   policy_arn = aws_iam_policy.github_deployer_policy.arn
+}
+
+# --- Recursos do S3 (Restaurados) ---
+resource "aws_s3_bucket" "video_storage" {
+  bucket = var.s3_bucket_name
+  tags = {
+    Name        = "${var.s3_bucket_name}-video-storage"
+    Environment = "production"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "video_storage_versioning" {
+  bucket = aws_s3_bucket.video_storage.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "video_storage_encryption" {
+  bucket = aws_s3_bucket.video_storage.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "video_storage_public_access" {
+  bucket = aws_s3_bucket.video_storage.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "video_storage_ownership" {
+  bucket = aws_s3_bucket.video_storage.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
 }
