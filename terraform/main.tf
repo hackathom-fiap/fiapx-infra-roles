@@ -7,16 +7,13 @@ variable "api_app_role_name" {}
 variable "worker_app_role_name" {}
 variable "aws_region" {}
 
-# --- Blocos de Importação (Para resolver o erro EntityAlreadyExists via esteira) ---
+# --- Blocos de Importação ---
 import {
   to = aws_iam_role.external_secrets_role
   id = "hackathon-fiapx-external-secrets-role"
 }
 
-import {
-  to = aws_iam_role.deploy_role
-  id = "role-eks-fiap"
-}
+# Removi a importação da deploy_role para evitar quebras na esteira
 
 locals {
   # --- POLÍTICA DE CONFIANÇA GENÉRICA (IRSA) ---
@@ -109,28 +106,14 @@ resource "aws_iam_role_policy_attachment" "app_attachment" {
   policy_arn = aws_iam_policy.app_generic_policy.arn
 }
 
-# --- Role de Deploy (GitHub Actions) ---
-resource "aws_iam_role" "deploy_role" {
-  name               = var.deploy_role_name
-  assume_role_policy = file("${path.module}/iamsr/trust/trust-github-actions.json")
-}
+# --- Removido a gestão da Role de Deploy pelo Terraform ---
+# Esta Role deve ser mantida manualmente na AWS para não quebrar o OIDC do GitHub.
 
-resource "aws_iam_policy" "github_deployer_policy" {
-  name        = "${var.deploy_role_name}-policy"
-  description = "Policy para deploy de infra via GitHub Actions"
-  policy      = file("${path.module}/iamsr/policy/policy-github-deployer.json")
-}
-
-resource "aws_iam_role_policy_attachment" "github_deployer_attachment" {
-  role       = aws_iam_role.deploy_role.name
-  policy_arn = aws_iam_policy.github_deployer_policy.arn
-}
-
-# --- Recurso S3 Protegido (Para evitar erro de deleção) ---
+# --- Recurso S3 Protegido ---
 resource "aws_s3_bucket" "video_storage" {
   bucket = var.s3_bucket_name
   
   lifecycle {
-    prevent_destroy = true # Impede que o Terraform delete este bucket
+    prevent_destroy = true
   }
 }
