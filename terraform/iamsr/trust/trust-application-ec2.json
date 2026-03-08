@@ -4,14 +4,16 @@
       {
           "Effect": "Allow",
           "Principal": {
-              "Federated": "arn:aws:iam::239409137076:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/D2ECEC3F628E7B40E9CBE79C3FE95B62"
+              "Federated": "arn:aws:iam::239409137076:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/B593E3DC270823509D0B061BFFB15EF0"
           },
           "Action": "sts:AssumeRoleWithWebIdentity",
           "Condition": {
               "StringLike": {
-                  "oidc.eks.us-east-1.amazonaws.com/id/D2ECEC3F628E7B40E9CBE79C3FE95B62:sub": [
+                  "oidc.eks.us-east-1.amazonaws.com/id/B593E3DC270823509D0B061BFFB15EF0:sub": [
                       "system:serviceaccount:fiapx-api:*",
-                      "system:serviceaccount:fiapx-worker:*"
+                      "system:serviceaccount:fiapx-worker:*",
+                      "system:serviceaccount:fiapx-auth:*"
+
                   ]
               }
           }
