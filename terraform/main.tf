@@ -7,6 +7,17 @@ variable "api_app_role_name" {}
 variable "worker_app_role_name" {}
 variable "aws_region" {}
 
+# --- Blocos de Importação (Para resolver o erro EntityAlreadyExists via esteira) ---
+import {
+  to = aws_iam_role.external_secrets_role
+  id = "hackathon-fiapx-external-secrets-role"
+}
+
+import {
+  to = aws_iam_role.deploy_role
+  id = "role-eks-fiap"
+}
+
 locals {
   # --- POLÍTICA DE CONFIANÇA GENÉRICA (IRSA) ---
   generic_assume_role_policy = jsonencode({
@@ -113,44 +124,4 @@ resource "aws_iam_policy" "github_deployer_policy" {
 resource "aws_iam_role_policy_attachment" "github_deployer_attachment" {
   role       = aws_iam_role.deploy_role.name
   policy_arn = aws_iam_policy.github_deployer_policy.arn
-}
-
-# --- Recursos do S3 (Restaurados) ---
-resource "aws_s3_bucket" "video_storage" {
-  bucket = var.s3_bucket_name
-  tags = {
-    Name        = "${var.s3_bucket_name}-video-storage"
-    Environment = "production"
-  }
-}
-
-resource "aws_s3_bucket_versioning" "video_storage_versioning" {
-  bucket = aws_s3_bucket.video_storage.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "video_storage_encryption" {
-  bucket = aws_s3_bucket.video_storage.id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "video_storage_public_access" {
-  bucket = aws_s3_bucket.video_storage.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_ownership_controls" "video_storage_ownership" {
-  bucket = aws_s3_bucket.video_storage.id
-  rule {
-    object_ownership = "BucketOwnerPreferred"
-  }
 }
