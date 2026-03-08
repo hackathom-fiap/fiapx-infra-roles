@@ -15,12 +15,3 @@ output "iam_deploy_role_arn" {
   description = "O ARN da IAM role de Deploy."
   value       = aws_iam_role.deploy_role.arn
 }
-
-# Output para informações do Bucket S3
-output "s3_bucket_name" {
-  value = aws_s3_bucket.video_storage.bucket
-}
-
-output "s3_bucket_arn" {
-  value = aws_s3_bucket.video_storage.arn
-}
