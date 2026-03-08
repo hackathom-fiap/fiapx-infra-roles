@@ -125,3 +125,12 @@ resource "aws_iam_role_policy_attachment" "github_deployer_attachment" {
   role       = aws_iam_role.deploy_role.name
   policy_arn = aws_iam_policy.github_deployer_policy.arn
 }
+
+# --- Recurso S3 Protegido (Para evitar erro de deleção) ---
+resource "aws_s3_bucket" "video_storage" {
+  bucket = var.s3_bucket_name
+  
+  lifecycle {
+    prevent_destroy = true # Impede que o Terraform delete este bucket
+  }
+}
